@@ -25,6 +25,7 @@ function script_update(settings)
   mode = obs.obs_data_get_int(settings, "mode")
   check_interval = obs.obs_data_get_int(settings, "check_interval")
   logging = obs.obs_data_get_bool(settings, "enable_logging")
+  enabled = obs.obs_data_get_bool(settings, "enabled")
   randomize()
 end
 
@@ -32,6 +33,7 @@ function script_defaults(settings)
   obs.obs_data_set_default_string(settings, "marker", "%%")
   obs.obs_data_set_default_int(settings, "mode", 1)
   obs.obs_data_set_default_int(settings, "check_interval", 500)
+  obs.obs_data_set_default_bool(settings, "enabled", true)
   obs.obs_data_set_default_bool(settings, "enable_logging", false)
 end
 
@@ -46,6 +48,7 @@ function script_properties()
 
   obs.obs_properties_add_text(props, "marker", "Marker", obs.OBS_TEXT_DEFAULT)
   obs.obs_properties_add_int(props, "check_interval", "Check Interval (ms)", 250, 1000000, 1)
+  obs.obs_properties_add_bool(props, "enabled", "Enabled")
   obs.obs_properties_add_bool(props, "enable_logging", "Enable Logging")
 
   match_count_prop = obs.obs_properties_add_text(props, "match_count", "Matching Sources in Preview Scene", obs.OBS_TEXT_INFO)
@@ -97,6 +100,7 @@ function get_matching_sources(scene, out_list)
   local scene_items = obs.obs_scene_enum_items(scene)
 
   local sources = obs.obs_enum_sources()
+  log("Matching Sources:")
   for i = #scene_items, 1, -1 do
     local item = scene_items[i]
     local source = obs.obs_sceneitem_get_source(item)
@@ -110,7 +114,7 @@ function get_matching_sources(scene, out_list)
 
     if string.find(source_name, marker) then
       if source_id == "ffmpeg_source" or source_id == "vlc_source" then
-        log("!" .. source_name)
+        log("! " .. source_name)
         table.insert(out_list, { name = source_name, source = source, item = item })
       end
     end
@@ -140,6 +144,10 @@ function refresh_sources(scene)
 end
 
 function script_tick(seconds)
+  if not enabled then
+    return
+  end
+
   local current_time = obs.os_gettime_ns() / 1e6  -- Convert nanoseconds to milliseconds
   local scene = obs.obs_frontend_get_current_scene()
   local scene_name = obs.obs_source_get_name(scene)
@@ -153,7 +161,7 @@ function script_tick(seconds)
     prev_time = current_time
 
     if scene_data[scene_name] == nil then
-      log("Sources not found for scene, loading: " .. scene_name)
+      log("Cached sources not found for scene, loading: " .. scene_name)
       refresh_sources(scene)
     end
     sources = scene_data[scene_name].sources
@@ -170,6 +178,7 @@ function script_tick(seconds)
       if visible then
         local state = obs.obs_source_media_get_state(source.source)
         if state == obs.OBS_MEDIA_STATE_ENDED then
+          log("Source stopped : " .. source.name)
 
           if mode == modes.RANDOM_REPEATS then
             refresh_sources(scene)
@@ -188,6 +197,7 @@ function script_tick(seconds)
             else
               next_source = sources[j]
               if mode == modes.RANDOM_REPEATS or scene_data[scene_name].played[next_source.name] == nil then
+                log("Starting source: " .. next_source.name)
                 obs.obs_sceneitem_set_visible(next_source.item, true)
                 obs.obs_source_media_restart(next_source.source)
                 done = true
